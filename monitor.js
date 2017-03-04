@@ -237,8 +237,9 @@ if (config.debugLevel >= 1) {
 	console.log(`Started at ${new Date()}`);
 }
 if (config.debugLevel >= 2) {
-	console.log(`process.argv: \n${process.argv}`);
-	console.log(`Configuration:\n${config}`);
+	// split console.log to ignore whitespace at `,`
+	console.log(`process.argv: `); console.log(process.argv);
+	console.log(`Configuration: `); console.log(config);
 	console.log(`FFmpegCommand:\n${FFmpegCommand} "${config.outputDir}tmp_[${config.dateFormat}].mp4"`);
 }
 if (config.debugLevel >= 3) {
@@ -290,7 +291,12 @@ var fsWatcher = fs.watch(config.TeamViewerDir, (eventType, filename) => {
 
 							recordProcess = childProcess.exec(`${FFmpegCommand} "${config.outputDir}${tempFileName}"`, (err) => {
 								if (err === null) return;
-								console.log(`exec error: ${err}`);
+								console.log(`exec error:\n${err}`);
+
+								// exec error should stop process and reset filename
+								recordProcess.kill();
+								tempFileName = null;
+								recordProcess = null;
 							});
 
 							if (config.debugLevel >= 3) {

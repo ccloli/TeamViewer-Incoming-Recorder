@@ -26,9 +26,9 @@ $ node monitor.js [--options]
 
 All the options should have a prefix of `--` and use `=` to split option name and its value like `--foo=bar`.
 
-For the value that contains whitespace, you can use `""` or `''` to set them.
+For the value that contains whitespace, you can use quotes `"..."` or `'...'` to set them.
 
-If you need to use some variables from environment variable, like getting system username, you can use ` `` ` like template literals and `${}` as the variable that in `process.env`, the system's environment variable. For example, to set `--TeamViewerDir` for TeamViewer 11 on Linux, you can use `` --TeamViewerDir=`/var/log/teamviewer11/${USER}/` ``, and `${USER}` will be replaced as `process.env.USER`.
+If you need to use some variables from environment variables, like getting system username, you can use backticks `` `...` `` like template literals and `${}` as the variable that in `process.env`, the system's environment variables. For example, to set `--TeamViewerDir` for TeamViewer 11 on Linux, you can use `` --TeamViewerDir=`/var/log/teamviewer11/${USER}/` ``, and `${USER}` will be replaced as `process.env.USER`, the variable `USER` in system's environment variables.
 
 ### `--config`
 
@@ -109,15 +109,17 @@ Default: `5`
 
 The framerate (fps) of output videos.
 
+A higher fps will get a smoother video, but the bitrate for each frame will be smaller. For monitoring, less than `10` fps is enough.
+
 ### `--bitrate`
 
 Default: `2000000`
 
 The bitrate (bps) of output videos.
 
-Choose a higher bitrate will get better video quality, and a lower bitrate will get smaller video.
+Choose a higher bitrate will get better video quality, and a lower bitrate will get smaller video but would drop frames.
 
-Not only the number, but you can also try `500k` and `2m` for easy understanding which is supported by FFmpeg.
+Not only the number, but you can also try `500k`, `2m` and `ntsc` for easy understanding which is supported by FFmpeg.
 
 Note: Higher bitrate will makes the video file too large, the file size should be `[bitrate] / 8` bytes/secod, or say `[bitrate] / 1000 / 1000 / 8` MB/s. For recording monitor, less than _2Mbps_ is okay. From my test, video with _500Kbps_, _1080P_ and _`ultrafast`_ can be seen clearly and can be used in most situation. Anyway, TIY and get the best configuration.
 
@@ -163,7 +165,7 @@ Default: `null`
 
 Defines the cropped size of cropped area (video frame size).
 
-The format value should be `[x]x[y]` likes `1024x768`, `1920x1080` or the name of standard size likes `ntsc`, `vga`, `hd720`.
+The format value should be `[x]x[y]` likes `1024x768`, `1920x1080` or the name of standard size likes `vga`, `hd720`.
 
 Note: it would probably occur an error if the video size exceed the screen available size.
 

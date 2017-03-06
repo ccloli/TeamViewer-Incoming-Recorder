@@ -8,9 +8,8 @@ var childProcess = require('child_process');
 
 var config = {
 	// TeamViewer Config, will be defined later
-	TeamViewerDir: null,
-	logFileName: 'TeamViewer12_Logfile.log',
-	incomingFileName: 'Connections_incoming.txt',
+	logFilePath: null,
+	incomingFilePath: null,
 	// TeamViewer Log Keyword
 	connectedKeyword: 'TeamViewerDesktop started',//'Desktop: Grabbed screen is ok.', // 'Desktop grab succeeded.',
 	disconnectedKeyword: 'RA: Stopping capturing thread',
@@ -92,11 +91,13 @@ Date.prototype.toParsedString = function(format){
  * @returns {string[]} The splited argument
  */
 function getSplitArg (arg) {
-	var splitArg = arg.split(/=(.+)/);
+	var splitArg = arg.trim().split(/=(.+)/);
 	if (splitArg.length === 2) {
 		if (splitArg[1].match(/^`.*\${.+}.*`$/)) { // exec template iterator
 			splitArg[1] = splitArg[1].match(/^`(.+)`$/)[1].replace(/\${(.+)}/gi, (match, cur) => {
-				try {
+				cur = cur.trim();
+
+				/*try {
 					// WARNING: `eval()` is not safe, should find a better solution
 					// example: ${childProcess.exec('rm rf /'), 'helloworld'}
 					//return eval(cur);
@@ -106,11 +107,17 @@ function getSplitArg (arg) {
 				}
 				catch (err) {
 					return cur;
+				}*/
+				
+				if (process.env[cur]) {
+					return process.env[cur];
 				}
+
+				return cur;
 			});
 		}
 		else {
-			splitArg[1] = splitArg[1].match(/^"(.+)"$|^'(.+)'$|^`(.+)`$|^(.+)$/)[1];
+			splitArg[1] = splitArg[1].match(/^"(.+)"$|^'(.+)'$|^`(.+)`$|^(.+)$/)[1].trim();
 		}
 	}
 
@@ -133,29 +140,30 @@ function getModifiedText (path, options, callback) {
 	});
 }
 
-
+// set default `logFilePath` and `incomingFilePath` by platform
 switch (process.platform) {
 	case 'win32':
-		config.TeamViewerDir = 'C:/Program Files (x86)/TeamViewer/';
+		config.logFilePath = 'C:/Program Files (x86)/TeamViewer/TeamViewer12_Logfile.log';
+		config.incomingFilePath = 'C:/Program Files (x86)/TeamViewer/Connections_incoming.log';
 		break;
 
 	case 'darwin':
-		config.TeamViewerDir = '~/Library/Logs/TeamViewer/';
+		config.logFilePath = '~/Library/Logs/TeamViewer/TeamViewer12_Logfile.log';
+		config.incomingFilePath = '~/Library/Logs/TeamViewer/Connections_incoming.log';
 		break;
 
 	case 'linux':
-		config.TeamViewerDir = `/var/log/teamviewer12/${process.env.USER}/`;
+		config.logFilePath = `/var/log/teamviewer12/${process.env.USER}/TeamViewer12_Logfile.log`;
+		config.incomingFilePath = '/var/log/teamviewer12/Connections_incoming.log';
 		break;
 
 	default:
 		console.log('Did TeamViewer support a new platform???');
 		// how about linux?
-		config.TeamViewerDir = `/var/log/teamviewer12/${process.env.USER}/`;
+		config.logFilePath = `/var/log/teamviewer12/${process.env.USER}/TeamViewer12_Logfile.log`;
+		config.incomingFilePath = '/var/log/teamviewer12/Connections_incoming.log';
 }
 
-// cache log file size first
-var logFileSize = fs.statSync(config.TeamViewerDir + config.logFileName).size;
-var incomingFileSize = fs.statSync(config.TeamViewerDir + config.incomingFileName).size;
 var tempFileName = null;
 var recordProcess = null;
 var connectedTime = null;
@@ -186,7 +194,12 @@ process.argv.forEach((elem) => {
 // last, overwrite `config`
 Object.keys(overwriteConfig).forEach((elem) => {
 	config[elem] = overwriteConfig[elem];
+	delete overwriteConfig[elem];
 });
+
+// cache log file size first
+var logFileSize = fs.statSync(config.logFilePath).size;
+var incomingFileSize = fs.statSync(config.incomingFilePath).size;
 
 // FFmpeg command
 var FFmpegCommand;
@@ -247,132 +260,147 @@ if (config.debugLevel >= 3) {
 	console.log(`incomingFileSize: ${incomingFileSize}`);
 }
 
-var fsWatcher = fs.watch(config.TeamViewerDir, (eventType, filename) => {
+// Since log file and incoming file are in different folders on Linux, 
+// which also doesn't support watching subdirectory, and filename won't be defined on OS X,
+// we need to use two watchers to watch the two specific files
+var logFileWatcher = fs.watch(config.logFilePath, (eventType, filename) => {
+	// console.log(`event type is: ${eventType}`);
+	if (eventType === 'change') {
+		if (filename) {
+			if (config.debugLevel >= 2) {
+				// some platform like OS X doesn't support `filename`
+				console.log(`Modified File: ${filename}`);
+			}
+		}
+		
+		const newFileSize = fs.statSync(config.logFilePath).size;
+
+		if (newFileSize === logFileSize) return;
+		
+		if (config.debugLevel >= 2) {
+			console.log(`Log File Modified: ${logFileSize} -> ${newFileSize}`);
+		}
+
+		if (newFileSize < logFileSize) { // log file was updated, read from first byte
+			logFileSize = 0;
+		}
+
+		getModifiedText(config.logFilePath, {
+			start: logFileSize,
+			end: newFileSize - 1
+		}, (text) => {
+			if (config.debugLevel >= 3) {
+				console.log(`Modified Content: \n${text}`);
+			}
+
+			if (!text) return;
+			
+			if (text.indexOf(config.connectedKeyword) >= 0) {
+				if (config.debugLevel >= 1) {
+					console.log('A TeamViewer Incoming Connection is Connected!');
+				}
+
+				if (tempFileName === null) {
+					connectedTime = new Date();
+					tempFileName = `tmp_${connectedTime.toParsedString(config.dateFormat)}.mp4`;
+					if (config.debugLevel >= 2) {
+						console.log(`Temp Video Name: ${tempFileName}`);
+					}
+
+					recordProcess = childProcess.exec(`${FFmpegCommand} "${config.outputDir}${tempFileName}"`, (err) => {
+						if (err === null) return;
+						console.log(`exec error:\n${err}`);
+
+						// exec error should stop process and reset filename
+						recordProcess.kill();
+						tempFileName = null;
+						recordProcess = null;
+					});
+
+					if (config.debugLevel >= 3) {
+						recordProcess.stdout.on('data', (data) => {
+							console.log(data);
+						});
+						recordProcess.stderr.on('data', (data) => {
+							console.log(data);	// some logs from FFmpeg will be in `stderr`
+						});
+					}
+				}
+			}
+			if (text.indexOf(config.disconnectedKeyword) >= 0) {
+				// however, if TeamViewer is not run as service, this won't updated
+				if (config.debugLevel >= 1) {
+					console.log('A TeamViewer Incoming Connection is Disconnected!');
+				}
+			}
+		});
+		
+		logFileSize = newFileSize;
+	}
+});
+
+var incomingFileWatcher = fs.watch(config.incomingFilePath, (eventType, filename) => {
 	// console.log(`event type is: ${eventType}`);
 	if (eventType === 'change') {
 		if (filename) {
 			if (config.debugLevel >= 2) {
 				console.log(`Modified File: ${filename}`);
 			}
-			const newFileSize = fs.statSync(config.TeamViewerDir + filename).size;
-
-			if (filename === config.logFileName) {
-				if (newFileSize === logFileSize) return;
-				
-				if (config.debugLevel >= 2) {
-					console.log(`Log File Modified: ${logFileSize} -> ${newFileSize}`);
-				}
-
-				if (newFileSize < logFileSize) { // log file was updated, read from first byte
-					logFileSize = 0;
-				}
-
-				getModifiedText(config.TeamViewerDir + filename, {
-					start: logFileSize,
-					end: newFileSize - 1
-				}, (text) => {
-					if (config.debugLevel >= 3) {
-						console.log(`Modified Content: \n${text}`);
-					}
-
-					if (!text) return;
-					
-					if (text.indexOf(config.connectedKeyword) >= 0) {
-						if (config.debugLevel >= 1) {
-							console.log('A TeamViewer Incoming Connection is Connected!');
-						}
-
-						if (tempFileName === null) {
-							connectedTime = new Date();
-							tempFileName = `tmp_${connectedTime.toParsedString(config.dateFormat)}.mp4`;
-							if (config.debugLevel >= 2) {
-								console.log(`Temp Video Name: ${tempFileName}`);
-							}
-
-							recordProcess = childProcess.exec(`${FFmpegCommand} "${config.outputDir}${tempFileName}"`, (err) => {
-								if (err === null) return;
-								console.log(`exec error:\n${err}`);
-
-								// exec error should stop process and reset filename
-								recordProcess.kill();
-								tempFileName = null;
-								recordProcess = null;
-							});
-
-							if (config.debugLevel >= 3) {
-								recordProcess.stdout.on('data', (data) => {
-									console.log(data);
-								});
-								recordProcess.stderr.on('data', (data) => {
-									console.log(data);	// some logs from FFmpeg will be in `stderr`
-								});
-							}
-						}
-					}
-					if (text.indexOf(config.disconnectedKeyword) >= 0) {
-						// however, if TeamViewer is not run as service, this won't updated
-						if (config.debugLevel >= 1) {
-							console.log('A TeamViewer Incoming Connection is Disconnected!');
-						}
-					}
-				});
-				
-				logFileSize = newFileSize;
-			}
-			else if (filename === config.incomingFileName) {
-				if (newFileSize === incomingFileSize) return;
-
-				if (config.debugLevel >= 3) {
-					console.log(`Incoming Log File Modified: ${logFileSize} -> ${newFileSize}`);
-				}
-
-				if (newFileSize < incomingFileSize) { // log file was updated, read from first byte
-					incomingFileSize = 0;
-				}
-
-				getModifiedText(config.TeamViewerDir + filename, {
-					start: incomingFileSize,
-					end: newFileSize - 1
-				}, (text) => {
-					if (!text) return;
-
-					if (config.debugLevel >= 1) {
-						console.log(`TeamViewer Incoming Log: \n${text}`);
-					}
-
-					// in case the script is running at when having an exist connection
-					if (tempFileName === null) return;
-					
-					// at this time, the connection has already disconnected
-					disconnectedTime = new Date();
-					var splitLog = text.split('\t');
-					var finalFileName = config.outputFileName
-											.replace(/\${ct}/g, connectedTime.toParsedString(config.dateFormat).trim())
-											.replace(/\${dt}/g, disconnectedTime.toParsedString(config.dateFormat).trim())
-											.replace(/\${id}/g, splitLog[0].trim())
-											.replace(/\${name}/g, splitLog[1].trim() !== 'null' ? `(${splitLog[1].trim()})` : '');
-
-					recordProcess.on('exit', () => {
-						fs.rename(config.outputDir + tempFileName, config.outputDir + finalFileName, (err) => {
-							if (err) {
-								console.log(err);
-							}
-
-							if (config.debugLevel >= 1) {
-								console.log('Output file has been writen to ' + config.outputDir + finalFileName);
-							}
-							tempFileName = null;
-							recordProcess = null;
-						});
-					});
-					
-					//recordProcess.disconnect();
-					//recordProcess.kill();
-					recordProcess.stdin.write('q'); // `FFmpeg: press [q] to exit`
-				});
-
-				incomingFileSize = newFileSize;
-			}
 		}
+		
+		const newFileSize = fs.statSync(config.logFilePath).size;
+
+		if (newFileSize === incomingFileSize) return;
+
+		if (config.debugLevel >= 2) {
+			console.log(`Incoming Log File Modified: ${logFileSize} -> ${newFileSize}`);
+		}
+
+		if (newFileSize < incomingFileSize) { // log file was updated, read from first byte
+			incomingFileSize = 0;
+		}
+
+		getModifiedText(config.incomingFilePath, {
+			start: incomingFileSize,
+			end: newFileSize - 1
+		}, (text) => {
+			if (!text) return;
+
+			if (config.debugLevel >= 1) {
+				console.log(`TeamViewer Incoming Log: \n${text}`);
+			}
+
+			// in case the script is running at when having an exist connection
+			if (tempFileName === null) return;
+			
+			// at this time, the connection has already disconnected
+			disconnectedTime = new Date();
+			var splitLog = text.split('\t');
+			var finalFileName = config.outputFileName
+									.replace(/\${ct}/g, connectedTime.toParsedString(config.dateFormat).trim())
+									.replace(/\${dt}/g, disconnectedTime.toParsedString(config.dateFormat).trim())
+									.replace(/\${id}/g, splitLog[0].trim())
+									.replace(/\${name}/g, splitLog[1].trim() !== 'null' ? `(${splitLog[1].trim()})` : '');
+
+			recordProcess.on('exit', () => {
+				fs.rename(config.outputDir + tempFileName, config.outputDir + finalFileName, (err) => {
+					if (err) {
+						console.log(err);
+					}
+					else if (config.debugLevel >= 1) {
+						console.log('Output file has been writen to ' + config.outputDir + finalFileName);
+					}
+
+					tempFileName = null;
+					recordProcess = null;
+				});
+			});
+			
+			//recordProcess.disconnect();
+			//recordProcess.kill();
+			recordProcess.stdin.write('q'); // `FFmpeg: press [q] to exit`
+		});
+
+		incomingFileSize = newFileSize;
 	}
 });

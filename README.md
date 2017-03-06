@@ -2,11 +2,18 @@
 
 A Node.js script that helps you to record incoming TeamViewer session.
 
+TeamViewer can record outcoming connection, and allows to record automaticly. However TeamViewer doesn't provide an option to record incoming connection from hosted workstation. If the computer enables unattended access, you can get only a little information from log file of TeamViewer, but don't know what the incoming user did on the computer.
+
+The script helps you to check if there is a incoming connection, and record the screen automaticly so that you can check what did he do.
+
 ## Required Environment
 
 - Node.js 4.8.0+
 - FFmpeg Executable Binary
 - Also TeamViewer
+
+Note: Enable logging from TeamViewer is requied, please make sure you have enabled logging and logging incoming connections. Check it out at _TeamViewer Options -> Advanced -> Log files_.
+![](https://cloud.githubusercontent.com/assets/8115912/23586733/7b7d74f4-01d6-11e7-9bd4-65cdd18be2e2.png)
 
 ## Supports
 
@@ -28,7 +35,7 @@ All the options should have a prefix of `--` and use `=` to split option name an
 
 For the value that contains whitespace, you can use quotes `"..."` or `'...'` to set them.
 
-If you need to use some variables from environment variables, like getting system username, you can use backticks `` `...` `` like template literals and `${}` as the variable that in `process.env`, the system's environment variables. For example, to set `--TeamViewerDir` for TeamViewer 11 on Linux, you can use `` --TeamViewerDir=`/var/log/teamviewer11/${USER}/` ``, and `${USER}` will be replaced as `process.env.USER`, the variable `USER` in system's environment variables.
+If you need to use some variables from environment variables, like getting system username, you can use backticks `` `...` `` like template literals and `${}` as the variable that in `process.env`, the system's environment variables. For example, to set `--logFilePath` for TeamViewer 11 on Linux, you can use `` --logFilePath=`/var/log/teamviewer11/${USER}/TeamViewer11_Logfile.log` ``, and `${USER}` will be replaced as `process.env.USER`, the variable `USER` in system's environment variables.
 
 ### `--config`
 
@@ -40,38 +47,34 @@ Note: All the commands that in the file **don't** need to add `--` prefix, and t
 
 Example:
 ```
-TeamViewerDir="C:/Program Files/TeamViewer/"
-logFileName=TeamViewer11_Logfile.log
+logFilePath="C:/Program Files/TeamViewer/TeamViewer11_Logfile.log"
 FFmpegPath=D:/foo/bar/ffmpeg.exe
 outputDir=D:/bar/foo/
 ```
 
-### `--TeamViewerDir`
+### `--logFilePath`
 
-Default:
-- Windows: `C:/Program Files (x86)/TeamViewer/`  
-- Linux: `/var/log/teamviewer12/${process.env.USER}/`
-- OS X: `~/Library/Logs/TeamViewer/`
+Default: 
+- Windows: `C:/Program Files (x86)/TeamViewer/TeamViewer12_Logfile.log`  
+- Linux: `/var/log/teamviewer12/${process.env.USER}/TeamViewer12_Logfile.log`
+- OS X: `~/Library/Logs/TeamViewer/TeamViewer12_Logfile.log`
 
-The folder that contains the log files like TeamViewer log file and incoming/outcoming log files.
+The location of log file of TeamViewer. 
 
-For Windows it mostly at where you install TeamViewer, and I'm not sure other system, the path by default for other system is from Reddit/TeamViewer. If you find it incorrect, please correct it with this option, and you can also consider open an issue.
-
-Note: Please make sure the value is end with `/`.
-
-### `--logFileName`
-
-Default: `TeamViewer12_Logfile.log`
-
-The log file of TeamViewer. 
+For Windows it mostly at where you install TeamViewer, Linux at `/var/log/teamviewer12/[System Username]/`, and OS X at `~/Library/Logs/TeamViewer/`. If you find it incorrect, please correct it with this option, and you can also consider open an issue.
 
 The default file name is for TeamViewer 12, if you are using another version, don't forget to change it.
 
-### `--incomingFileName`
+### `--incomingFilePath`
 
-Default: `Connections_incoming.txt`
+Default: 
+- Windows: `C:/Program Files (x86)/TeamViewer/Connections_incoming.txt`  
+- Linux: `/var/log/teamviewer12/Connections_incoming.txt`
+- OS X: `~/Library/Logs/TeamViewer/Connections_incoming.txt`
 
-The log file of incoming connections from TeamViewer.
+The location of log file of incoming connections from TeamViewer.
+
+For Windows it mostly at where you install TeamViewer, Linux at `/var/log/teamviewer12/`, and OS X at `~/Library/Logs/TeamViewer/`. If you find it incorrect, please correct it with this option, and you can also consider open an issue.
 
 ### `--FFmpegPath`
 
@@ -224,33 +227,33 @@ Default: `1`
 
 The details that will output on console.
 
-The level can be choose between `0` to `3`. `0` is no output, `1` is minimum detail and `3` is maximun detail.
+The level can be chosed between `0` to `3`. `0` is no output, `1` is minimum detail and `3` is maximun detail.
 
 ## Default FFmpeg Command
 
-As mentioned, the script needs FFmpeg to record screen. For different system, it'll use different FFmpeg device to get video devices. Windows uses `gdigrab`, Linux uses `x11grab` and OS X uses `avfoundation`. For more information, see the documentation of [FFmpeg-device](https://ffmpeg.org/ffmpeg-devices.html).
+As mentioned, the script needs FFmpeg to record screen. For different system, it'll use different FFmpeg devices to get video devices. Windows uses `gdigrab`, Linux uses `x11grab` and OS X uses `avfoundation`. For more information, see the documentation of [FFmpeg-device](https://ffmpeg.org/ffmpeg-devices.html).
 
-So here is the FFmpeg command that will be executed when recording video. You can use `--FFmpegExtraArg` to overwrite them, as FFmpeg allows same option with multiple value but only the last one will be used.
+So here is the FFmpeg command that will be executed when recording video. You can use `--FFmpegExtraArg` to overwrite them, as FFmpeg allows same option with multiple values but only the last one will be used.
 
 - Windows:
 	```sh
-	"${FFmpegPath}" -f gdigrab -framerate ${fps} \
-	    -offset_x ${offsetX} -offset_y ${offsetY} -video_size ${videoSize} \
-	    -i desktop -vcodec libx264 -b:v ${bitrate} -vf scale=${scale} \
+	"${FFmpegPath}" -f gdigrab -framerate ${fps} \  
+	    -offset_x ${offsetX} -offset_y ${offsetY} -video_size ${videoSize} \  
+	    -i desktop -vcodec libx264 -b:v ${bitrate} -vf scale=${scale} \  
 	    -preset ${preset} ${FFmpegExtraArg} "${outputDir}tmp_[${dateFormat}].mp4"
 	```
 - Linux:
 	```sh
-	"${FFmpegPath}" -f x11grab -framerate ${fps} \
-	    -grab_x ${offsetX} -grab_y ${offsetY} -video_size ${videoSize} \
-	    -i ${videoDeviceIndex} -vcodec libx264 -b:v ${bitrate} -vf scale=${scale} \
+	"${FFmpegPath}" -f x11grab -framerate ${fps} \  
+	    -grab_x ${offsetX} -grab_y ${offsetY} -video_size ${videoSize} \  
+	    -i ${videoDeviceIndex} -vcodec libx264 -b:v ${bitrate} -vf scale=${scale} \  
 	    -preset ${preset} ${FFmpegExtraArg} "${outputDir}tmp_[${dateFormat}].mp4"
 	```
 - OS X:
 	```sh
-	"${FFmpegPath}" -f avfoundation -framerate ${fps} \
-	    -video_size ${videoSize} -i "${videoDeviceIndex}:none" -capture_cursor 1 \
-	    -capture_mouse_clicks 1 -vcodec libx264 -b:v ${bitrate} -vf scale=${scale} \
+	"${FFmpegPath}" -f avfoundation -framerate ${fps} \  
+	    -video_size ${videoSize} -i "${videoDeviceIndex}:none" -capture_cursor 1 \  
+	    -capture_mouse_clicks 1 -vcodec libx264 -b:v ${bitrate} -vf scale=${scale} \  
 	    -preset ${preset} ${FFmpegExtraArg} "${outputDir}tmp_[${dateFormat}].mp4"
 	```
 
